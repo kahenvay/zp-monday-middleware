@@ -150,21 +150,157 @@ app.post('/monday/create', (req, res) => {
 
 	let zpData = req.body;
 
-	// axios
-	// 	.post(MONDAY_TOKEN_FULL_URL, {})
-	// 	.then((response) => {
 	// WILL NEED TO KNOW BOARD ID SOMEHOW
 	let mondayBoardId = '3975323293';
 
-	// let query = `mutation { create_item (board_id: ${mondayBoardId}, group_id: "today", item_name: ${zpData.task_name}) { id }}"`;
-	let query =
-		'mutation {create_item (board_id: ' +
-		mondayBoardId +
-		', group_id: "topics", item_name: "' +
-		zpData.task_name +
-		'", column_values: "{\\"text_1\\": \\"' +
-		zpData.task_id +
-		'\\"}") {id}}';
+	// Creating item or subitem
+	zpCheckIfHasParentTaksIdThenCreate(
+		zpData.project_id,
+		zpData.task_id,
+		zpData,
+		mondayBoardId,
+	);
+});
+
+app.post('/monday/update', (req, res) => {
+	console.log('--');
+	console.log('starting monday update webhook handler');
+	// console.log(req);
+	console.log(JSON.stringify(req.body));
+	console.log('--');
+
+	res.status(200).send(req.body);
+
+	let zpData = req.body;
+
+	// WILL NEED TO KNOW BOARD ID SOMEHOW
+	let mondayBoardId = '3975323293';
+
+	// Creating item or subitem
+	mondayUpdate(zpData, mondayBoardId);
+});
+
+app.post('/monday/delete', (req, res) => {
+	console.log('--');
+	console.log('starting monday delete webhook handler');
+	console.log(JSON.stringify(req.body));
+	console.log('--');
+});
+
+app.use((error, req, res, next) => {
+	res.status(500);
+	res.send({ error: error });
+	console.error(error.stack);
+	next(error);
+});
+
+app.listen(port, () =>
+	console.log(`Example app listening at http://localhost:${port}`),
+);
+
+function zpCheckIfHasParentTaksIdThenCreate(
+	zpProjectId,
+	task_id,
+	zpData,
+	mondayBoardId,
+) {
+	axios
+		.post(ZP_TOKEN_REFRESH_FULL_URL, {})
+		.then((response) => {
+			axios
+				.post(
+					ZP_BASE_URL + zpProjectId + '/tasks/' + task_id + '/',
+					{},
+					{
+						headers: {
+							Authorization: 'Bearer ' + response.data.access_token,
+						},
+					},
+				)
+				.then((response) => {
+					// console.log('got response from zp', response);
+					if ('parent_task_id' in response.data.tasks[0]) {
+						console.log('It has a parent!');
+						let parent_task_id = response.data.tasks[0].parent_task_id;
+						axios
+							.post(ZP_TOKEN_REFRESH_FULL_URL, {})
+							.then((response) => {
+								axios
+									.post(
+										ZP_BASE_URL +
+											zpProjectId +
+											'/tasks/' +
+											parent_task_id +
+											'/',
+										{},
+										{
+											headers: {
+												Authorization: 'Bearer ' + response.data.access_token,
+											},
+										},
+									)
+									.then((response) => {
+										console.log('Got parent ZP task', response.data.tasks[0]);
+										let externalId =
+											response.data.tasks[0].custom_fields.find(isExternalId);
+										console.log('ZP Task External ID', externalId);
+										// return externalId;
+										mondayCreate(zpData, mondayBoardId, externalId.value);
+									})
+									.catch((err) => {
+										console.error(
+											`Error gettin parent ZP for external ID: ${err}`,
+										);
+										console.error(JSON.stringify(err.response.data));
+									});
+							})
+							.catch((err) =>
+								console.error(`Error getting refresh Token: ${err}`),
+							);
+					} else {
+						console.log('ZP task has no parent id');
+						mondayCreate(zpData, mondayBoardId);
+					}
+				})
+				.catch((err) => {
+					console.error(`Error getting from ZP: ${err}`);
+					console.error(JSON.stringify(err.response.data));
+				});
+		})
+		.catch((err) => console.error(`Error getting refresh Token: ${err}`));
+}
+
+function isExternalId(custom_field) {
+	return (custom_field.column_name = 'UDF_CHAR1'); // external ID
+}
+
+function mondayCreate(zpData, mondayBoardId, zpParentTaksId) {
+	let query;
+
+	console.log('lets creat a monday task');
+	console.log('value of zpParentTaksId', zpParentTaksId);
+
+	if (zpParentTaksId) {
+		console.log(' if got a parent task id ');
+		query =
+			'mutation { create_subitem (create_labels_if_missing: true, parent_item_id: ' +
+			zpParentTaksId +
+			', item_name: "' +
+			zpData.task_name +
+			'", column_values: "{\\"text_1\\": \\"' +
+			zpData.task_id +
+			'\\"}") { id board { id }}}';
+	} else {
+		console.log(' if no got a parent task id ');
+		query =
+			'mutation {create_item (create_labels_if_missing: true, board_id: ' +
+			mondayBoardId +
+			', group_id: "topics", item_name: "' +
+			zpData.task_name +
+			'", column_values: "{\\"text_1\\": \\"' +
+			zpData.task_id +
+			'\\"}") {id}}';
+	}
 
 	axios
 		.post(
@@ -183,7 +319,12 @@ app.post('/monday/create', (req, res) => {
 			if ('errors' in response.data) {
 				console.log(JSON.stringify(response.data.errors));
 			} else {
-				let mondayId = response.data.data.create_item.id + '';
+				let mondayId;
+				if (zpParentTaksId) {
+					mondayId = response.data.data.create_subitem.id + '';
+				} else {
+					mondayId = response.data.data.create_item.id + '';
+				}
 
 				console.log('mondayId', mondayId);
 
@@ -226,31 +367,41 @@ app.post('/monday/create', (req, res) => {
 			}
 		})
 		.catch((err) => console.error(`Error sending to Monday: ${err}`));
-	// })
-	// .catch((err) => console.error(`Error getting refresh Token: ${err}`));
-});
+}
 
-app.post('/monday/update', (req, res) => {
-	console.log('--');
-	console.log('starting monday update webhook handler');
-	console.log(JSON.stringify(req.body));
-	console.log('--');
-});
+function mondayUpdate(zpData, mondayBoardId) {
+	let query;
 
-app.post('/monday/delete', (req, res) => {
-	console.log('--');
-	console.log('starting monday delete webhook handler');
-	console.log(JSON.stringify(req.body));
-	console.log('--');
-});
+	console.log('lets update a monday task');
 
-app.use((error, req, res, next) => {
-	res.status(500);
-	res.send({ error: error });
-	console.error(error.stack);
-	next(error);
-});
+	query =
+		'mutation { change_multiple_column_values (item_id: ' +
+		zpData.external_id +
+		', board_id: ' +
+		mondayBoardId +
+		', column_values: "{\\"name\\": \\"' +
+		zpData.task_name +
+		'\\"}") { id } }';
 
-app.listen(port, () =>
-	console.log(`Example app listening at http://localhost:${port}`),
-);
+	// ', column_values: "{\\"text\\": \\"Some different text\\"}") { id } }';
+
+	axios
+		.post(
+			'https://api.monday.com/v2',
+			{
+				query: query,
+			},
+			{
+				headers: { Authorization: 'Bearer ' + process.env.MONDAY_ACCESS_TOKEN },
+			},
+		)
+		.then((response) => {
+			console.log('Updated in monday!');
+			console.log(response.data);
+			//add back to ZP the external ID
+			if ('errors' in response.data) {
+				console.log(JSON.stringify(response.data.errors));
+			}
+		})
+		.catch((err) => console.error(`Error sending to Monday: ${err}`));
+}

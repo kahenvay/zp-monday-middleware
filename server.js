@@ -334,9 +334,11 @@ function mondayCreate(zpData, mondayBoardId, zpParentTaksId) {
 function mondayUpdate(zpData, mondayBoardId) {
 	let query;
 
+	let { external_id, task_name, task_status } = zpData;
+
 	console.log('lets update a monday task');
 
-	query = `mutation { change_multiple_column_values (item_id: ${zpData.external_id}, board_id: ${mondayBoardId}, column_values: "{\\"name\\": \\"${zpData.task_name}\\"}") { id } }`;
+	query = `mutation { change_multiple_column_values (item_id: ${external_id}, board_id: ${mondayBoardId}, column_values: "{\\"name\\": \\"${task_name}\\", \\"status\\": {\\"label\\": \\"${task_status}\\"}}") { id } }`;
 
 	// ', column_values: "{\\"text\\": \\"Some different text\\"}") { id } }';
 
@@ -453,11 +455,11 @@ function getMondayExternalIdThenCallbackInZoho(
 
 	// use this id get external zoho task id
 	// the calll zohoUpdate with that ID
-	console.log('Getting external ID from monday parent task !');
 
 	let mondayId;
 
 	if (thisOrParentExternalId == 'parent') {
+		console.log('Getting external ID from monday parent task !');
 		mondayId = mondayData.parentItemId;
 	} else {
 		mondayId = mondayData.pulseId;
@@ -540,8 +542,32 @@ function zohoUpdate(
 			if (createOrUpdateColOrUpdateName == 'name') {
 				params.name = mondayData.value.name;
 			} else {
-				params[mondayData.columnTitle] = mondayData.value.value;
+				// params[mondayData.columnTitle] = mondayData.value.value;
+				switch (mondayData.columnTitle) {
+					case 'Status':
+						// params.task_status = mondayData.value.label.text;
+						// TODO : Dictionnary for Status IDs?
+						switch (mondayData.value.label.text) {
+							case 'Working on it':
+								params.custom_status = '1986721000000411165';
+							case 'Stuck':
+								params.custom_status = '1986721000000761075';
+							case 'Not Started':
+								params.custom_status = '1986721000000761107';
+							case 'Done':
+								params.custom_status = '1986721000000411161';
+							case 'Closed':
+								params.custom_status = '1986721000000016071';
+							case 'Not Involved':
+								params.custom_status = '1986721000000761083';
+						}
+						break;
+					// case 'Text':
+					// 	break;
+				}
 			}
+
+			console.log('params', params);
 
 			axios
 				.post(

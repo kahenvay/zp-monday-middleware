@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios').default;
-var cors = require('cors');
+// const cors = require('cors');
 
 const ZP_TOKEN_REFRESH_ENDPOINT = 'https://accounts.zoho.com/oauth/v2/token';
 const MONDAY_TOKEN_REFRESH_ENDPOINT = 'https://auth.monday.com/oauth2/token';
@@ -71,17 +71,47 @@ app.post('/zoho-projects/sub-item-create', (req, res) => {
 
 	let zpProjectId = '1986721000000671005';
 
-	getMondayParentExternalIdThenCreateTaskInZoho(mondayData, zpProjectId);
+	getMondayExternalIdThenCallbackInZoho(
+		mondayData,
+		zpProjectId,
+		'parent',
+		'create',
+	);
 });
 
-app.post('/zoho-projects/item-update', (req, res) => {
-	console.log(JSON.stringify(req.body));
+// app.post('/zoho-projects/item-update', (req, res) => {
+// 	console.log(JSON.stringify(req.body));
+// 	res.status(200).send(req.body);
+// });
+
+app.post('/zoho-projects/item-name-change', (req, res) => {
+	// console.log(JSON.stringify(req.body));
 	res.status(200).send(req.body);
+
+	console.log('Monday Name Change');
+	let mondayData = req.body.event;
+	let zpProjectId = '1986721000000671005';
+	getMondayExternalIdThenCallbackInZoho(
+		mondayData,
+		zpProjectId,
+		'this',
+		'name', //updating the name of the task
+	);
 });
 
 app.post('/zoho-projects/column-change', (req, res) => {
 	console.log(JSON.stringify(req.body));
 	res.status(200).send(req.body);
+
+	console.log('Monday Column Change');
+	let mondayData = req.body.event;
+	let zpProjectId = '1986721000000671005';
+	getMondayExternalIdThenCallbackInZoho(
+		mondayData,
+		zpProjectId,
+		'this',
+		'update',
+	);
 });
 
 app.post('/monday/create', (req, res) => {
@@ -122,7 +152,7 @@ app.post('/monday/update', (req, res) => {
 	let mondayBoardId = '3975323293';
 
 	// Creating item or subitem
-	// mondayUpdate(zpData, mondayBoardId);
+	mondayUpdate(zpData, mondayBoardId);
 });
 
 app.post('/monday/delete', (req, res) => {
@@ -227,24 +257,10 @@ function mondayCreate(zpData, mondayBoardId, zpParentTaksId) {
 
 	if (zpParentTaksId) {
 		console.log(' if got a parent task id ');
-		query =
-			'mutation { create_subitem (create_labels_if_missing: true, parent_item_id: ' +
-			zpParentTaksId +
-			', item_name: "' +
-			zpData.task_name +
-			'", column_values: "{\\"text_1\\": \\"' +
-			zpData.task_id +
-			'\\"}") { id board { id }}}';
+		query = `mutation { create_subitem (create_labels_if_missing: true, parent_item_id: ${zpParentTaksId}, item_name: "${zpData.task_name}", column_values: "{\\"text_1\\": \\"${zpData.task_id}\\"}") { id board { id }}}`;
 	} else {
 		console.log(' if no got a parent task id ');
-		query =
-			'mutation {create_item (create_labels_if_missing: true, board_id: ' +
-			mondayBoardId +
-			', group_id: "topics", item_name: "' +
-			zpData.task_name +
-			'", column_values: "{\\"text_1\\": \\"' +
-			zpData.task_id +
-			'\\"}") {id}}';
+		query = `mutation {create_item (create_labels_if_missing: true, board_id: ${mondayBoardId}, group_id: "topics", item_name: "${zpData.task_name}", column_values: "{\\"text_1\\": \\"${zpData.task_id}\\"}") {id}}`;
 	}
 
 	axios
@@ -320,14 +336,7 @@ function mondayUpdate(zpData, mondayBoardId) {
 
 	console.log('lets update a monday task');
 
-	query =
-		'mutation { change_multiple_column_values (item_id: ' +
-		zpData.external_id +
-		', board_id: ' +
-		mondayBoardId +
-		', column_values: "{\\"name\\": \\"' +
-		zpData.task_name +
-		'\\"}") { id } }';
+	query = `mutation { change_multiple_column_values (item_id: ${zpData.external_id}, board_id: ${mondayBoardId}, column_values: "{\\"name\\": \\"${zpData.task_name}\\"}") { id } }`;
 
 	// ', column_values: "{\\"text\\": \\"Some different text\\"}") { id } }';
 
@@ -398,16 +407,7 @@ function zohoCreate(mondayData, zpProjectId, zpTaskId) {
 					console.log('response tasks', response.data.tasks);
 					let zpId = response.data.tasks[0].id_string;
 
-					// console.log('zpId', zpId);
-
-					let query =
-						'mutation {change_multiple_column_values(item_id: ' +
-						mondayData.pulseId +
-						', board_id:' +
-						mondayData.boardId +
-						', column_values: "{\\"text_1\\" : \\"' +
-						zpId +
-						'\\"}") {id}}';
+					let query = `mutation {change_multiple_column_values(item_id: ${mondayData.pulseId}, board_id: ${mondayData.boardId}, column_values: "{\\"text_1\\": \\"${zpId}\\"}") {id}}`;
 
 					axios
 						.post(
@@ -440,17 +440,36 @@ function zohoCreate(mondayData, zpProjectId, zpTaskId) {
 		.catch((err) => console.error(`Error getting refresh Token: ${err}`));
 }
 
-function getMondayParentExternalIdThenCreateTaskInZoho(
+function getMondayExternalIdThenCallbackInZoho(
 	mondayData,
 	zpProjectId,
+	thisOrParentExternalId,
+	createOrUpdateColOrUpdateName,
 ) {
 	// use parentId from mondayData to get Zoho Task Id
 	// then call zohoCreate with that ID
 
-	let query =
-		'query { items(ids: [' +
-		mondayData.parentItemId +
-		']) {name, column_values(ids: ["text_1"]) {text} } }';
+	//or
+
+	// use this id get external zoho task id
+	// the calll zohoUpdate with that ID
+	console.log('Getting external ID from monday parent task !');
+
+	let mondayId;
+
+	if (thisOrParentExternalId == 'parent') {
+		mondayId = mondayData.parentItemId;
+	} else {
+		mondayId = mondayData.pulseId;
+	}
+
+	// let query =
+	// 	'query { items(ids: [' +
+	// 	mondayId +
+	// 	']) {name, column_values(ids: ["text_1"]) {text} } }';
+
+	let query = `query { items(ids: [
+		${mondayId}]) {name, column_values(ids: ["text_1"]) {text} } }`;
 
 	axios
 		.post(
@@ -465,7 +484,6 @@ function getMondayParentExternalIdThenCreateTaskInZoho(
 			},
 		)
 		.then((response) => {
-			console.log('Getting external ID from monday parent task !');
 			console.log(JSON.stringify(response.data));
 			// console.log(JSON.stringify(response.data.data));
 			// console.log(JSON.stringify(response.data.data.items));
@@ -483,38 +501,47 @@ function getMondayParentExternalIdThenCreateTaskInZoho(
 					'got external ID',
 					response.data.data.items[0].column_values[0].text,
 				);
-				console.log("let's go create in ZOHO!");
-				zohoCreate(
-					mondayData,
-					zpProjectId,
-					response.data.data.items[0].column_values[0].text,
-				);
+				if (createOrUpdateColOrUpdateName == 'create') {
+					console.log("let's go create in ZOHO!");
+					zohoCreate(
+						mondayData,
+						zpProjectId,
+						response.data.data.items[0].column_values[0].text,
+					);
+				} else {
+					console.log("let's go update in ZOHO!");
+					zohoUpdate(
+						mondayData,
+						zpProjectId,
+						response.data.data.items[0].column_values[0].text,
+						createOrUpdateColOrUpdateName,
+					);
+				}
 			}
 		})
 		.catch((err) => console.error(`Error getting ID from Monday: ${err}`));
 }
 
-function zohoUpdate(mondayData, zpProjectId) {
-	let zohoTaskId;
-
+function zohoUpdate(
+	mondayData,
+	zpProjectId,
+	zpTaskId,
+	createOrUpdateColOrUpdateName,
+) {
 	axios
 		.post(ZP_TOKEN_REFRESH_FULL_URL, {})
 		.then((response) => {
 			// WILL NEED TO KNOW PROJECT ID SOMEHOW
 
-			let zpUrl = ZP_BASE_URL + zpProjectId + '/tasks/' + zohoTaskId + '/';
+			let zpUrl = ZP_BASE_URL + zpProjectId + '/tasks/' + zpTaskId + '/';
 
-			let params = {
-				// person_responsible: '783689839', // MAYBE NEED LIST OF USERS TO AVOID EXTRA CALL TO ZOHO, COMPARE MONDAY LIST TO ZP LIST, THIS USER IS AYESHA
-				name: mondayData.pulseName,
-				// created_by:
-				// MAYBE SHOULD HAVE THESE ON ZOHO AX monday_external_ids
-				// boardId: 3975323293,
-				// custom_fields: { UDF_CHAR1: mondayData.pulseId },
-				//and maybe
-				//"groupId": "topics",
-				//"groupName": "Professional",
-			};
+			let params = {};
+
+			if (createOrUpdateColOrUpdateName == 'name') {
+				params.name = mondayData.value.name;
+			} else {
+				params[mondayData.columnTitle] = mondayData.value.value;
+			}
 
 			axios
 				.post(
@@ -526,48 +553,15 @@ function zohoUpdate(mondayData, zpProjectId) {
 					},
 				)
 				.then((response) => {
-					console.log('Added to ZP!');
+					console.log('Updated in ZP!');
 					console.log('response tasks', response.data.tasks);
 					let zpId = response.data.tasks[0].id_string;
 
 					// console.log('zpId', zpId);
 
-					let query =
-						'mutation {change_multiple_column_values(item_id: ' +
-						mondayData.pulseId +
-						', board_id:' +
-						mondayData.boardId +
-						', column_values: "{\\"text_1\\" : \\"' +
-						zpId +
-						'\\"}") {id}}';
-
-					axios
-						.post(
-							'https://api.monday.com/v2',
-							{
-								query: query,
-							},
-							{
-								headers: {
-									Authorization: 'Bearer ' + process.env.MONDAY_ACCESS_TOKEN,
-								},
-							},
-						)
-						.then((response) => {
-							console.log(response.data);
-							if ('errors' in response.data) {
-								console.log('there was an error');
-								console.log(JSON.stringify(response.data.errors));
-							} else {
-								console.log('Added to external ID to monday!');
-							}
-						})
-						.catch((err) => console.error(`Error sending to Monday: ${err}`));
-					// })
-
 					//add back to monday the external ID
 				})
-				.catch((err) => console.error(`Error sending to ZP: ${err}`));
+				.catch((err) => console.error(`Error updating to ZP: ${err}`));
 		})
 		.catch((err) => console.error(`Error getting refresh Token: ${err}`));
 }

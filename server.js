@@ -550,16 +550,22 @@ function zohoUpdate(
 						switch (mondayData.value.label.text) {
 							case 'Working on it':
 								params.custom_status = '1986721000000411165';
+								break;
 							case 'Stuck':
 								params.custom_status = '1986721000000761075';
+								break;
 							case 'Not Started':
 								params.custom_status = '1986721000000761107';
+								break;
 							case 'Done':
 								params.custom_status = '1986721000000411161';
+								break;
 							case 'Closed':
 								params.custom_status = '1986721000000016071';
+								break;
 							case 'Not Involved':
 								params.custom_status = '1986721000000761083';
+								break;
 						}
 						break;
 					// case 'Text':

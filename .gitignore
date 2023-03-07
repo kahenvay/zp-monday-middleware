@@ -115,3 +115,7 @@ dist
 
 # Keep environment secret
 .env
+
+#keep credentials secrent
+credentials.json
+token.json

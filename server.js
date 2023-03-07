@@ -114,6 +114,24 @@ app.post('/zoho-projects/column-change', (req, res) => {
 	);
 });
 
+app.post('/zoho-projects/delete', (req, res) => {
+	console.log(JSON.stringify(req.body));
+	res.status(200).send(req.body);
+
+	console.log('Monday delete hook, destination is /zoho-projects/delete');
+	let mondayData = req.body.event;
+	let zpProjectId = '1986721000000671005';
+	getMondayExternalIdThenCallbackInZoho(
+		mondayData,
+		zpProjectId,
+		'this',
+		'delete',
+	);
+	// getMondayExternalId(mondayData.pulseId)
+	// 	.then((zohoId) => zohoDelete(zpProjectId, zohoId))
+	// 	.catch(console.error);
+});
+
 app.post('/monday/create', (req, res) => {
 	console.log('--');
 	console.log('starting monday create webhook handler');
@@ -442,11 +460,46 @@ function zohoCreate(mondayData, zpProjectId, zpTaskId) {
 		.catch((err) => console.error(`Error getting refresh Token: ${err}`));
 }
 
+// async function getMondayExternalId(mondayId) {
+// 	let query = `query { items(ids: [
+// 		${mondayId}]) {name, column_values(ids: ["text_1"]) {text} } }`;
+// 	try {
+// 		const response = await axios.post(
+// 			'https://api.monday.com/v2',
+// 			{
+// 				query: query,
+// 			},
+// 			{
+// 				headers: {
+// 					Authorization: 'Bearer ' + process.env.MONDAY_ACCESS_TOKEN,
+// 				},
+// 			},
+// 		);
+// 		return response.data.data.items[0].column_values[0].text;
+// 	} catch (err) {
+// 		if (error.response) {
+// 			// Request made but the server responded with an error
+// 			console.error('Error getting Id from Monday');
+// 			console.error(error.response.data);
+// 			console.error(error.response.status);
+// 			console.error(error.response.headers);
+// 		} else if (error.request) {
+// 			// Request made but no response is received from the server.
+// 			console.error('Error getting Id from Monday');
+// 			console.error(error.request);
+// 		} else {
+// 			// Error occured while setting up the request
+// 			console.error('Error getting Id from Monday');
+// 			console.error('Error', error.message);
+// 		}
+// 	}
+// }
+
 function getMondayExternalIdThenCallbackInZoho(
 	mondayData,
 	zpProjectId,
 	thisOrParentExternalId,
-	createOrUpdateColOrUpdateName,
+	operation,
 ) {
 	// use parentId from mondayData to get Zoho Task Id
 	// then call zohoCreate with that ID
@@ -462,7 +515,8 @@ function getMondayExternalIdThenCallbackInZoho(
 		console.log('Getting external ID from monday parent task !');
 		mondayId = mondayData.parentItemId;
 	} else {
-		mondayId = mondayData.pulseId;
+		console.log('Getting external ID from monday this task !');
+		mondayId = mondayData.pulseId || mondayData.itemId;
 	}
 
 	// let query =
@@ -503,20 +557,26 @@ function getMondayExternalIdThenCallbackInZoho(
 					'got external ID',
 					response.data.data.items[0].column_values[0].text,
 				);
-				if (createOrUpdateColOrUpdateName == 'create') {
+				if (operation == 'create') {
 					console.log("let's go create in ZOHO!");
 					zohoCreate(
 						mondayData,
 						zpProjectId,
 						response.data.data.items[0].column_values[0].text,
 					);
-				} else {
+				} else if (operation == 'update' || operation == 'name') {
 					console.log("let's go update in ZOHO!");
 					zohoUpdate(
 						mondayData,
 						zpProjectId,
 						response.data.data.items[0].column_values[0].text,
-						createOrUpdateColOrUpdateName,
+						operation,
+					);
+				} else {
+					console.log("let's go delete in ZOHO!");
+					zohoDelete(
+						zpProjectId,
+						response.data.data.items[0].column_values[0].text,
 					);
 				}
 			}
@@ -524,12 +584,7 @@ function getMondayExternalIdThenCallbackInZoho(
 		.catch((err) => console.error(`Error getting ID from Monday: ${err}`));
 }
 
-function zohoUpdate(
-	mondayData,
-	zpProjectId,
-	zpTaskId,
-	createOrUpdateColOrUpdateName,
-) {
+function zohoUpdate(mondayData, zpProjectId, zpTaskId, operation) {
 	axios
 		.post(ZP_TOKEN_REFRESH_FULL_URL, {})
 		.then((response) => {
@@ -539,7 +594,7 @@ function zohoUpdate(
 
 			let params = {};
 
-			if (createOrUpdateColOrUpdateName == 'name') {
+			if (operation == 'name') {
 				params.name = mondayData.value.name;
 			} else {
 				// params[mondayData.columnTitle] = mondayData.value.value;
@@ -587,13 +642,36 @@ function zohoUpdate(
 				.then((response) => {
 					console.log('Updated in ZP!');
 					console.log('response tasks', response.data.tasks);
-					let zpId = response.data.tasks[0].id_string;
-
-					// console.log('zpId', zpId);
-
-					//add back to monday the external ID
 				})
 				.catch((err) => console.error(`Error updating to ZP: ${err}`));
+		})
+		.catch((err) => console.error(`Error getting refresh Token: ${err}`));
+}
+
+function zohoDelete(zpProjectId, zpTaskId) {
+	axios
+		.post(ZP_TOKEN_REFRESH_FULL_URL, {})
+		.then((response) => {
+			// WILL NEED TO KNOW PROJECT ID SOMEHOW
+
+			// console.log('zoho auth response', response.data.scope);
+
+			let zpUrl = ZP_BASE_URL + zpProjectId + '/tasks/' + zpTaskId + '/';
+
+			console.log('zpUrl', zpUrl);
+
+			axios
+				.delete(zpUrl, {
+					headers: { Authorization: 'Bearer ' + response.data.access_token },
+				})
+				.then((response) => {
+					console.log('Delete in ZP!');
+					console.log('response', response);
+				})
+				.catch((err) => {
+					console.error(`Error sending to ZP: ${err}`);
+					// console.log(JSON.stringify(err));
+				});
 		})
 		.catch((err) => console.error(`Error getting refresh Token: ${err}`));
 }

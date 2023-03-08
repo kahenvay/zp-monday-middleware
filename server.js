@@ -178,6 +178,13 @@ app.post('/monday/delete', (req, res) => {
 	console.log('starting monday delete webhook handler');
 	console.log(JSON.stringify(req.body));
 	console.log('--');
+
+	res.status(200).send(req.body);
+
+	let zpData = req.body;
+
+	// Creating item or subitem
+	mondayDelete(zpData);
 });
 
 app.use((error, req, res, next) => {
@@ -372,6 +379,37 @@ function mondayUpdate(zpData, mondayBoardId) {
 		)
 		.then((response) => {
 			console.log('Updated in monday!');
+			console.log(response.data);
+			//add back to ZP the external ID
+			if ('errors' in response.data) {
+				console.log('there was an error');
+				console.log(JSON.stringify(response.data.errors));
+			}
+		})
+		.catch((err) => console.error(`Error sending to Monday: ${err}`));
+}
+
+function mondayDelete(zpData) {
+	let query;
+
+	let { external_id } = zpData;
+
+	console.log(`lets delete a monday task ${external_id}`);
+
+	query = `mutation { delete_item (item_id: ${external_id}) { id } }`;
+
+	axios
+		.post(
+			'https://api.monday.com/v2',
+			{
+				query: query,
+			},
+			{
+				headers: { Authorization: 'Bearer ' + process.env.MONDAY_ACCESS_TOKEN },
+			},
+		)
+		.then((response) => {
+			console.log('Deleted in monday!');
 			console.log(response.data);
 			//add back to ZP the external ID
 			if ('errors' in response.data) {
